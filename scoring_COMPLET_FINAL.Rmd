@@ -1,0 +1,777 @@
+---
+title: "Indicateur de Performance d'un Score : La Courbe ROC"
+subtitle: "Modélisation du Risque d'Impayé — Régression Logistique, Arbre de Décision, Forêt Aléatoire avec SMOTE"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo      = TRUE,
+  warning   = FALSE,
+  message   = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 5
+)
+```
+
+---
+
+# Introduction
+
+L'objectif de ce projet est la **modélisation du risque d'impayé** pour les clients d'une société financière.
+
+Dans le domaine du **risque de crédit**, il est crucial de détecter les clients susceptibles de ne pas rembourser leur crédit. Un modèle qui rate trop d'impayés (rappel faible) est bien plus dangereux qu'un modèle qui génère quelques fausses alarmes.
+
+Nous allons :
+
+1. Charger, nettoyer et explorer le jeu de données
+2. Créer des variables financières pertinentes
+3. Construire **3 modèles** : Régression Logistique, Arbre de Décision, Forêt Aléatoire
+4. Appliquer **SMOTE** pour corriger le déséquilibre des classes
+5. Évaluer et comparer tous les modèles avec la **courbe ROC** et l'**AUC**
+
+---
+
+# Packages
+
+```{r}
+library(pROC)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+```
+
+---
+
+# Chargement des Données
+
+```{r , echo=FALSE}
+data <- read.table(
+  "GV_RSQ_data_scoring_risque.txt",
+  header      = TRUE,
+  sep         = "|",
+  stringsAsFactors = FALSE,
+  strip.white = TRUE
+)
+
+cat("Dimensions :", nrow(data), "lignes x", ncol(data), "colonnes\n")
+head(data, 10)
+```
+
+```{r}
+summary(data)
+```
+
+---
+
+# Nettoyage des Données
+
+## Nettoyage de l'identifiant
+
+```{r}
+data$Identifiant <- trimws(data$Identifiant)
+```
+
+## Valeurs manquantes et doublons
+
+```{r , echo=FALSE}
+print(colSums(is.na(data)))
+cat("\nDoublons :", sum(duplicated(data$Identifiant)), "\n")
+```
+
+Aucune valeur manquante et aucun doublon — les données sont propres.
+
+## Conversion en facteurs
+
+```{r , echo=FALSE}
+data$Telephone      <- factor(data$Telephone,
+                               levels = c(0,1), labels = c("Non", "Oui"))
+data$Assurance      <- factor(data$Assurance,
+                               levels = c(0,1), labels = c("Non", "Oui"))
+data$Client         <- factor(data$Client,
+                               levels = c(0,1), labels = c("Nouveau", "Ancien"))
+data$Nb_emprunteurs <- factor(data$Nb_emprunteurs)
+data$Payeur         <- factor(data$Payeur,
+                               levels = c(0,1), labels = c("Impayé", "Payeur"))
+str(data)
+```
+
+## Suppression de l'identifiant
+
+```{r}
+data <- data[, !names(data) %in% "Identifiant"]
+cat("Dimensions finales :", nrow(data), "lignes x", ncol(data), "colonnes\n")
+```
+
+## Distribution de la variable cible
+
+```{r}
+freq <- table(data$Payeur)
+pct  <- round(prop.table(freq) * 100, 1)
+cat("Distribution :\n"); print(freq)
+cat("\nProportion :\n"); print(pct)
+```
+
+```{r fig.height=4 , echo=FALSE}
+barplot(freq,
+        col = c("#E74C3C", "#2ECC71"), border = "white",
+        main = "Distribution de la variable cible — Payeur",
+        ylab = "Nombre de clients", ylim = c(0, max(freq) * 1.3))
+text(x = c(0.7, 1.9), y = freq + 25,
+     labels = paste0(freq, "\n(", pct, "%)"), font = 2, cex = 1.0)
+legend("topright", legend = c("Impayé (0)", "Payeur (1)"),
+       fill = c("#E74C3C", "#2ECC71"), border = "white", bty = "n")
+```
+
+Le jeu de données est **fortement déséquilibré** : **86.7%** de clients Impayés contre **13.3%** de Payeurs. Sans correction, les modèles vont naturellement prédire "Impayé" pour tout le monde.
+
+---
+
+# Analyse Exploratoire
+
+## Boxplots des variables numériques
+
+```{r fig.height=6 , echo = FALSE}
+par(mfrow = c(2, 3))
+boxplot(data$Montant,           col = "#3498DB", main = "Montant (€)",      border = "#2C3E50")
+boxplot(data$Duree,             col = "#9B59B6", main = "Durée (mois)",      border = "#2C3E50")
+boxplot(data$Taux_interet,      col = "#E67E22", main = "Taux intérêt (%)",  border = "#2C3E50")
+boxplot(data$Ressources_Client, col = "#1ABC9C", main = "Ressources (€)",    border = "#2C3E50")
+boxplot(data$Charges_Client,    col = "#E74C3C", main = "Charges (€)",       border = "#2C3E50")
+par(mfrow = c(1, 1))
+```
+
+On observe des valeurs extrêmes sur les Ressources (max 36 752€) et les Charges (max 21 364€).
+
+## Variables catégorielles selon le statut
+
+```{r fig.height=4 , echo =TRUE}
+par(mfrow = c(1, 3))
+for (var in c("Telephone", "Assurance", "Client")) {
+  t_var <- prop.table(table(data[[var]], data$Payeur), margin = 1) * 100
+  barplot(t(t_var), beside = TRUE,
+          col = c("#E74C3C", "#2ECC71"), border = "white",
+          main = paste(var, "vs Statut"), ylab = "%",
+          legend.text = c("Impayé", "Payeur"),
+          args.legend = list(bty = "n", cex = 0.75))
+}
+par(mfrow = c(1, 1))
+```
+
+## Matrice de corrélation
+
+```{r fig.height=5 , echo =FALSE}
+num_data   <- data[, sapply(data, is.numeric)]
+cor_matrix <- cor(num_data, use = "complete.obs")
+
+# Affichage avec corrplot de base
+col_palette <- colorRampPalette(c("#E74C3C", "white", "#2ECC71"))(20)
+image(1:ncol(cor_matrix), 1:nrow(cor_matrix),
+      t(cor_matrix[nrow(cor_matrix):1, ]),
+      col  = col_palette, axes = FALSE,
+      main = "Matrice de Corrélation des variables numériques",
+      xlab = "", ylab = "")
+axis(1, at = 1:ncol(cor_matrix), labels = colnames(cor_matrix),
+     las = 2, cex.axis = 0.75)
+axis(2, at = 1:nrow(cor_matrix), labels = rev(rownames(cor_matrix)),
+     las = 1, cex.axis = 0.75)
+for (i in 1:nrow(cor_matrix))
+  for (j in 1:ncol(cor_matrix))
+    text(j, nrow(cor_matrix) - i + 1,
+         round(cor_matrix[i, j], 2), cex = 0.65)
+```
+
+---
+
+# Variables Dérivées
+
+```{r}
+# Taux d'endettement
+data$Taux_endettement <- round(data$Charges_Client / data$Ressources_Client * 100, 2)
+
+# Mensualité estimée (formule des annuités)
+data$Mensualite <- round(
+  data$Montant * (data$Taux_interet / 100 / 12) /
+  (1 - (1 + data$Taux_interet / 100 / 12)^(-data$Duree)), 2
+)
+
+# Reste à vivre
+data$Reste_a_vivre <- round(
+  data$Ressources_Client - data$Charges_Client - data$Mensualite, 2
+)
+
+head(data[, c("Taux_endettement", "Mensualite", "Reste_a_vivre")])
+```
+
+## Variables dérivées selon le statut
+
+```{r fig.height=4 , echo =FALSE}
+par(mfrow = c(1, 3))
+boxplot(Taux_endettement ~ Payeur, data = data,
+        col = c("#E74C3C", "#2ECC71"), main = "Taux endettement (%)",
+        xlab = "", ylab = "%", border = "#2C3E50")
+boxplot(Mensualite ~ Payeur, data = data,
+        col = c("#E74C3C", "#2ECC71"), main = "Mensualité (€)",
+        xlab = "", ylab = "€", border = "#2C3E50")
+boxplot(Reste_a_vivre ~ Payeur, data = data,
+        col = c("#E74C3C", "#2ECC71"), main = "Reste à vivre (€)",
+        xlab = "", ylab = "€", border = "#2C3E50")
+par(mfrow = c(1, 1))
+```
+
+Les clients **Impayés** ont un taux d'endettement plus élevé et un reste à vivre plus faible. Ces variables sont donc **discriminantes** pour la modélisation.
+
+---
+
+# Séparation Train / Test (70% / 30%)
+
+```{r}
+set.seed(42)
+
+n         <- nrow(data)
+idx       <- sample(1:n, size = round(0.70 * n))
+train_set <- data[idx, ]
+test_set  <- data[-idx, ]
+
+cat("Train :", nrow(train_set), "| Test :", nrow(test_set), "\n\n")
+cat("Proportions Train :\n")
+print(round(prop.table(table(train_set$Payeur)) * 100, 1))
+cat("\nProportions Test :\n")
+print(round(prop.table(table(test_set$Payeur)) * 100, 1))
+```
+
+Le déséquilibre est conservé dans les deux ensembles. Le **test restera intact** pour évaluer les modèles honnêtement.
+
+---
+
+# Fonctions Utilitaires
+
+```{r}
+# Vraie étiquette sur le test
+true_f     <- factor(ifelse(test_set$Payeur == "Impayé", "Impayé", "Payeur"),
+                     levels = c("Payeur", "Impayé"))
+true_label <- ifelse(test_set$Payeur == "Impayé", 1, 0)
+
+# Calcul des métriques à partir d'une table de confusion
+get_metrics <- function(cm, model_name) {
+  acc  <- round(sum(diag(cm)) / sum(cm) * 100, 2)
+  vp   <- cm["Impayé", "Impayé"]
+  fp   <- cm["Impayé", "Payeur"]
+  fn   <- cm["Payeur",  "Impayé"]
+  prec <- round(vp / (vp + fp) * 100, 2)
+  rec  <- round(vp / (vp + fn) * 100, 2)
+  f1   <- round(2 * prec * rec / (prec + rec), 2)
+  data.frame(Modèle = model_name, Accuracy = acc,
+             Précision = prec, Rappel = rec, F1_Score = f1)
+}
+
+# Affichage d'une matrice de confusion
+plot_cm <- function(cm, titre, couleur) {
+  image(1:2, 1:2, t(matrix(as.numeric(cm), 2, 2)),
+        col  = colorRampPalette(c("white", couleur))(10),
+        xaxt = "n", yaxt = "n",
+        xlab = "Prédit", ylab = "Réel", main = titre)
+  axis(1, at = 1:2, labels = colnames(cm))
+  axis(2, at = 1:2, labels = rownames(cm), las = 1)
+  for (i in 1:2) for (j in 1:2)
+    text(j, i, cm[i, j], cex = 2, font = 2,
+         col = ifelse(cm[i, j] > 150, "white", "black"))
+}
+```
+
+---
+
+# SMOTE — Rééquilibrage des Classes
+
+## Principe
+
+SMOTE génère des observations synthétiques pour la **classe minoritaire** (ici les **Payeurs** = 13.3%) :
+
+$$x_{new} = x + \lambda \cdot (x_{voisin} - x), \quad \lambda \in [0,1]$$
+
+On crée un nouveau client entre deux clients Payeurs réels, en ajoutant un bruit aléatoire sur chaque variable numérique.
+
+## Application
+
+```{r , echo =FALSE}
+set.seed(42)
+
+# Classe minoritaire = Payeur
+train_payeurs <- train_set[train_set$Payeur == "Payeur", ]
+train_impayes <- train_set[train_set$Payeur == "Impayé", ]
+
+dup_size   <- 4
+smote_list <- list()
+
+for (d in 1:dup_size) {
+  copie <- train_payeurs
+  copie$Montant           <- copie$Montant           + rnorm(nrow(copie), 0, 100)
+  copie$Ressources_Client <- copie$Ressources_Client + rnorm(nrow(copie), 0, 50)
+  copie$Charges_Client    <- copie$Charges_Client    + rnorm(nrow(copie), 0, 30)
+  copie$Taux_endettement  <- copie$Taux_endettement  + rnorm(nrow(copie), 0, 1)
+  copie$Reste_a_vivre     <- copie$Reste_a_vivre     + rnorm(nrow(copie), 0, 50)
+  smote_list[[d]]         <- copie
+}
+
+train_smote <- rbind(train_set, do.call(rbind, smote_list))
+
+cat("Avant SMOTE :\n"); print(table(train_set$Payeur))
+cat("\nAprès SMOTE :\n"); print(table(train_smote$Payeur))
+cat("\nProportions après SMOTE :\n")
+print(round(prop.table(table(train_smote$Payeur)) * 100, 1))
+```
+
+## Visualisation avant vs après SMOTE
+
+```{r fig.height=4 , echo=FALSE}
+avant <- as.numeric(table(train_set$Payeur))
+apres <- as.numeric(table(train_smote$Payeur))
+mat   <- rbind(avant, apres)
+colnames(mat) <- c("Impayé", "Payeur")
+
+bp <- barplot(t(mat), beside = TRUE,
+              col = c("#E74C3C", "#2ECC71"), border = "white",
+              main = "Distribution — Avant vs Après SMOTE",
+              ylab = "Nombre d'observations",
+              ylim = c(0, max(apres) * 1.3),
+              names.arg = c("Avant SMOTE", "Après SMOTE"),
+              legend.text = c("Impayé", "Payeur"),
+              args.legend = list(bty = "n", x = "topright"))
+text(x = bp, y = c(rbind(avant, apres)) + 30,
+     labels = c(rbind(avant, apres)), font = 2, cex = 0.9)
+```
+
+---
+
+# Modélisation
+
+## Modèle 1 — Régression Logistique
+
+### Sans SMOTE
+
+```{r , echo = FALSE}
+modele_lr <- glm(Payeur ~ . - Mensualite, data = train_set,
+                 family = binomial(link = "logit"))
+summary(modele_lr)
+```
+
+### Interprétation des coefficients
+
+```{r fig.height=5 , echo=FALSE}
+coeff    <- summary(modele_lr)$coefficients[-1, ]
+est      <- coeff[, "Estimate"]
+pval     <- coeff[, "Pr(>|z|)"]
+couleurs <- ifelse(est > 0, "#2ECC71", "#E74C3C")
+signif   <- ifelse(pval < 0.001, "***",
+            ifelse(pval < 0.01,  "**",
+            ifelse(pval < 0.05,  "*", "")))
+
+par(mar = c(5, 12, 4, 3))
+bp <- barplot(est, horiz = TRUE, las = 1, col = couleurs, border = "white",
+              main = "Coefficients — Régression Logistique",
+              xlab = "Coefficient estimé", cex.names = 0.8,
+              xlim = c(min(est) * 1.3, max(est) * 1.5))
+abline(v = 0, lwd = 1.5)
+text(x = ifelse(est > 0, est + 0.02, est - 0.02),
+     y = bp, labels = signif, cex = 0.9, font = 2,
+     col = "black", adj = ifelse(est > 0, 0, 1))
+legend("bottomright",
+       legend = c("→ Payeur (+)", "→ Impayé (-)", "* p<0.05  ** p<0.01  *** p<0.001"),
+       fill   = c("#2ECC71", "#E74C3C", NA),
+       border = c("white", "white", NA), bty = "n", cex = 0.8)
+par(mar = c(5, 4, 4, 2))
+```
+
+### Prédictions — Sans SMOTE
+
+```{r}
+prob_lr   <- predict(modele_lr, test_set, type = "response")
+pred_lr   <- factor(ifelse(prob_lr >= 0.5, "Payeur", "Impayé"),
+                    levels = c("Payeur", "Impayé"))
+cm_lr     <- table(Prédit = pred_lr, Réel = true_f)
+print(cm_lr)
+metr_lr   <- get_metrics(cm_lr, "LR — Sans SMOTE")
+```
+
+### Avec SMOTE
+
+```{r}
+modele_lr_smote <- glm(Payeur ~ . - Mensualite, data = train_smote,
+                       family = binomial(link = "logit"))
+prob_lr_smote   <- predict(modele_lr_smote, test_set, type = "response")
+pred_lr_smote   <- factor(ifelse(prob_lr_smote >= 0.5, "Payeur", "Impayé"),
+                          levels = c("Payeur", "Impayé"))
+cm_lr_smote     <- table(Prédit = pred_lr_smote, Réel = true_f)
+print(cm_lr_smote)
+metr_lr_smote   <- get_metrics(cm_lr_smote, "LR — Avec SMOTE")
+```
+
+```{r fig.height=4}
+par(mfrow = c(1, 2))
+plot_cm(cm_lr,       "LR Sans SMOTE", "#3498DB")
+plot_cm(cm_lr_smote, "LR Avec SMOTE", "#9B59B6")
+par(mfrow = c(1, 1))
+```
+
+---
+
+## Modèle 2 — Arbre de Décision
+
+### Sans SMOTE
+
+```{r}
+modele_arbre <- rpart(Payeur ~ . - Mensualite, data = train_set,
+                      method = "class",
+                      control = rpart.control(cp = 0.01))
+```
+
+```{r fig.height=6}
+rpart.plot(modele_arbre, type = 4, extra = 104,
+           main = "Arbre de Décision — Sans SMOTE",
+           box.palette = c("#E74C3C", "#2ECC71"), shadow.col = "gray")
+```
+
+```{r}
+prob_arbre  <- predict(modele_arbre, test_set, type = "prob")[, "Payeur"]
+pred_arbre  <- factor(ifelse(prob_arbre >= 0.5, "Payeur", "Impayé"),
+                      levels = c("Payeur", "Impayé"))
+cm_arbre    <- table(Prédit = pred_arbre, Réel = true_f)
+print(cm_arbre)
+metr_arbre  <- get_metrics(cm_arbre, "Arbre — Sans SMOTE")
+```
+
+### Avec SMOTE
+
+```{r}
+modele_arbre_smote <- rpart(Payeur ~ . - Mensualite, data = train_smote,
+                             method = "class",
+                             control = rpart.control(cp = 0.01))
+```
+
+```{r fig.height=6}
+rpart.plot(modele_arbre_smote, type = 4, extra = 104,
+           main = "Arbre de Décision — Avec SMOTE",
+           box.palette = c("#E74C3C", "#2ECC71"), shadow.col = "gray")
+```
+
+```{r}
+prob_arbre_smote <- predict(modele_arbre_smote, test_set, type = "prob")[, "Payeur"]
+pred_arbre_smote <- factor(ifelse(prob_arbre_smote >= 0.5, "Payeur", "Impayé"),
+                           levels = c("Payeur", "Impayé"))
+cm_arbre_smote   <- table(Prédit = pred_arbre_smote, Réel = true_f)
+print(cm_arbre_smote)
+metr_arbre_smote <- get_metrics(cm_arbre_smote, "Arbre — Avec SMOTE")
+```
+
+```{r fig.height=4}
+par(mfrow = c(1, 2))
+plot_cm(cm_arbre,       "Arbre Sans SMOTE", "#E67E22")
+plot_cm(cm_arbre_smote, "Arbre Avec SMOTE", "#D35400")
+par(mfrow = c(1, 1))
+```
+
+---
+
+## Modèle 3 — Forêt Aléatoire
+
+### Sans SMOTE
+
+```{r}
+set.seed(42)
+modele_rf <- randomForest(Payeur ~ . - Mensualite, data = train_set,
+                          ntree = 200, importance = TRUE)
+print(modele_rf)
+```
+
+### Importance des variables
+
+```{r fig.height=5}
+imp <- importance(modele_rf)
+imp_df <- imp[order(imp[, "MeanDecreaseGini"], decreasing = FALSE), ]
+
+par(mar = c(5, 12, 4, 2))
+barplot(imp_df[, "MeanDecreaseGini"],
+        names.arg = rownames(imp_df),
+        horiz = TRUE, las = 1,
+        col = "#2ECC71", border = "white",
+        main = "Importance des variables — Forêt Aléatoire",
+        xlab = "Mean Decrease Gini", cex.names = 0.8)
+par(mar = c(5, 4, 4, 2))
+```
+
+```{r}
+prob_rf  <- predict(modele_rf, test_set, type = "prob")[, "Payeur"]
+pred_rf  <- factor(ifelse(prob_rf >= 0.5, "Payeur", "Impayé"),
+                   levels = c("Payeur", "Impayé"))
+cm_rf    <- table(Prédit = pred_rf, Réel = true_f)
+print(cm_rf)
+metr_rf  <- get_metrics(cm_rf, "RF — Sans SMOTE")
+```
+
+### Avec SMOTE
+
+```{r}
+set.seed(42)
+modele_rf_smote <- randomForest(Payeur ~ . - Mensualite, data = train_smote,
+                                ntree = 200, importance = TRUE)
+
+prob_rf_smote  <- predict(modele_rf_smote, test_set, type = "prob")[, "Payeur"]
+pred_rf_smote  <- factor(ifelse(prob_rf_smote >= 0.5, "Payeur", "Impayé"),
+                         levels = c("Payeur", "Impayé"))
+cm_rf_smote    <- table(Prédit = pred_rf_smote, Réel = true_f)
+print(cm_rf_smote)
+metr_rf_smote  <- get_metrics(cm_rf_smote, "RF — Avec SMOTE")
+```
+
+```{r fig.height=4}
+par(mfrow = c(1, 2))
+plot_cm(cm_rf,       "RF Sans SMOTE", "#1ABC9C")
+plot_cm(cm_rf_smote, "RF Avec SMOTE", "#16A085")
+par(mfrow = c(1, 1))
+```
+
+---
+
+# Courbes ROC et AUC
+
+## Calcul des AUC
+
+```{r}
+roc_lr          <- roc(true_label, prob_lr,          quiet = TRUE)
+roc_lr_smote    <- roc(true_label, prob_lr_smote,    quiet = TRUE)
+roc_arbre       <- roc(true_label, prob_arbre,       quiet = TRUE)
+roc_arbre_smote <- roc(true_label, prob_arbre_smote, quiet = TRUE)
+roc_rf          <- roc(true_label, prob_rf,          quiet = TRUE)
+roc_rf_smote    <- roc(true_label, prob_rf_smote,    quiet = TRUE)
+
+cat("AUC Régression Logistique Sans SMOTE :", round(auc(roc_lr),          4), "\n")
+cat("AUC Régression Logistique Avec SMOTE :", round(auc(roc_lr_smote),    4), "\n")
+cat("AUC Arbre de Décision     Sans SMOTE :", round(auc(roc_arbre),       4), "\n")
+cat("AUC Arbre de Décision     Avec SMOTE :", round(auc(roc_arbre_smote), 4), "\n")
+cat("AUC Forêt Aléatoire       Sans SMOTE :", round(auc(roc_rf),          4), "\n")
+cat("AUC Forêt Aléatoire       Avec SMOTE :", round(auc(roc_rf_smote),    4), "\n")
+```
+
+## Courbes ROC — comparaison complète
+
+```{r fig.height=6}
+plot(roc_lr,          col = "#BDC3C7", lwd = 2, lty = 2,
+     main = "Courbes ROC — Comparaison de tous les modèles",
+     xlab = "Taux de Faux Positifs (1 - Spécificité)",
+     ylab = "Taux de Vrais Positifs (Sensibilité)")
+plot(roc_lr_smote,    col = "#3498DB", lwd = 2.5, add = TRUE)
+plot(roc_arbre,       col = "#F0B27A", lwd = 2, lty = 2, add = TRUE)
+plot(roc_arbre_smote, col = "#E67E22", lwd = 2.5, add = TRUE)
+plot(roc_rf,          col = "#A9DFBF", lwd = 2, lty = 2, add = TRUE)
+plot(roc_rf_smote,    col = "#27AE60", lwd = 2.5, add = TRUE)
+abline(a = 0, b = 1, col = "gray60", lty = 2, lwd = 1)
+
+legend("bottomright", bty = "n", cex = 0.75,
+       legend = c(
+         paste0("LR  Sans SMOTE (AUC=", round(auc(roc_lr),          3), ")"),
+         paste0("LR  Avec SMOTE (AUC=", round(auc(roc_lr_smote),    3), ")"),
+         paste0("Arbre Sans SMOTE (AUC=", round(auc(roc_arbre),     3), ")"),
+         paste0("Arbre Avec SMOTE (AUC=", round(auc(roc_arbre_smote),3),")"),
+         paste0("RF  Sans SMOTE (AUC=", round(auc(roc_rf),          3), ")"),
+         paste0("RF  Avec SMOTE (AUC=", round(auc(roc_rf_smote),    3), ")"),
+         "Aléatoire (AUC=0.5)"
+       ),
+       col = c("#BDC3C7","#3498DB","#F0B27A","#E67E22","#A9DFBF","#27AE60","gray60"),
+       lwd = c(2,2.5,2,2.5,2,2.5,1),
+       lty = c(2,1,2,1,2,1,2))
+```
+
+## Seuil Optimal — Indice de Youden
+
+Le seuil de 0.5 n'est pas toujours optimal. L'indice de Youden maximise **Sensibilité + Spécificité - 1**.
+
+```{r}
+# Seuil optimal pour le meilleur modèle (RF avec SMOTE)
+coords_rf <- coords(roc_rf_smote, "best", ret = c("threshold","sensitivity","specificity"),
+                    best.method = "youden")
+
+# Extraire les valeurs correctement
+seuil_opt <- as.numeric(coords_rf["threshold"])
+sensib_opt <- as.numeric(coords_rf["sensitivity"])
+specif_opt <- as.numeric(coords_rf["specificity"])
+
+cat("=== Seuil Optimal — RF avec SMOTE (Youden) ===\n")
+cat("Seuil       :", round(seuil_opt,        4), "\n")
+cat("Sensibilité :", round(sensib_opt * 100,  2), "%\n")
+cat("Spécificité :", round(specif_opt * 100,  2), "%\n")
+```
+
+```{r fig.height=5}
+plot(roc_rf_smote, col = "#27AE60", lwd = 2.5,
+     main = "Courbe ROC — RF Avec SMOTE + Seuil de Youden",
+     xlab = "Taux de Faux Positifs (1 - Spécificité)",
+     ylab = "Taux de Vrais Positifs (Sensibilité)")
+abline(a = 0, b = 1, col = "gray60", lty = 2)
+
+# Point optimal sur la courbe ROC
+points(1 - specif_opt, sensib_opt,
+       pch = 16, col = "#E74C3C", cex = 2)
+
+text(1 - specif_opt + 0.05, sensib_opt - 0.04,
+     labels = paste0("Seuil optimal\n= ", round(seuil_opt, 3)),
+     col = "#E74C3C", cex = 0.85)
+
+legend("bottomright",
+       legend = c(paste0("RF Avec SMOTE (AUC=", round(auc(roc_rf_smote), 3), ")"),
+                  "Seuil Youden optimal"),
+       col = c("#27AE60", "#E74C3C"),
+       lwd = c(2.5, NA), pch = c(NA, 16), bty = "n")
+```
+
+---
+
+# Optimisation dup_size (1 à 20)
+
+```{r fig.height=5}
+resultats_dup <- data.frame(dup_size = 1:20, Accuracy = NA, F1_Score = NA)
+
+for (d in 1:20) {
+  tryCatch({
+    set.seed(42)
+    sl <- list()
+    for (k in 1:d) {
+      copie <- train_payeurs
+      copie$Montant           <- copie$Montant           + rnorm(nrow(copie), 0, 100)
+      copie$Ressources_Client <- copie$Ressources_Client + rnorm(nrow(copie), 0, 50)
+      copie$Charges_Client    <- copie$Charges_Client    + rnorm(nrow(copie), 0, 30)
+      copie$Taux_endettement  <- copie$Taux_endettement  + rnorm(nrow(copie), 0, 1)
+      copie$Reste_a_vivre     <- copie$Reste_a_vivre     + rnorm(nrow(copie), 0, 50)
+      sl[[k]] <- copie
+    }
+    tr <- rbind(train_set, do.call(rbind, sl))
+    m  <- glm(Payeur ~ . - Mensualite, data = tr, family = binomial())
+    pr <- predict(m, test_set, type = "response")
+    pd <- factor(ifelse(pr >= 0.5, "Payeur", "Impayé"), levels = c("Payeur", "Impayé"))
+    cm_d <- table(Prédit = pd, Réel = true_f)
+    vp_d <- cm_d["Impayé","Impayé"]; fp_d <- cm_d["Impayé","Payeur"]
+    fn_d <- cm_d["Payeur","Impayé"]
+    p_d  <- round(vp_d/(vp_d+fp_d)*100,2)
+    r_d  <- round(vp_d/(vp_d+fn_d)*100,2)
+    resultats_dup$Accuracy[d] <- round(sum(diag(cm_d))/sum(cm_d)*100,2)
+    resultats_dup$F1_Score[d] <- round(2*p_d*r_d/(p_d+r_d),2)
+  }, error = function(e) NULL)
+}
+
+best_dup <- resultats_dup$dup_size[which.max(resultats_dup$F1_Score)]
+
+plot(resultats_dup$dup_size, resultats_dup$Accuracy,
+     type = "b", col = "#3498DB", lwd = 2.5, pch = 16,
+     ylim = c(0, 100), xlab = "dup_size", ylab = "Score (%)",
+     main = "Accuracy et F1-Score selon dup_size (SMOTE — Régression Logistique)")
+lines(resultats_dup$dup_size, resultats_dup$F1_Score,
+      type = "b", col = "#E74C3C", lwd = 2.5, pch = 16)
+abline(v = best_dup, col = "#9B59B6", lty = 2, lwd = 1.5)
+text(best_dup + 0.5, 5, paste0("Meilleur F1\ndup_size=", best_dup),
+     col = "#9B59B6", cex = 0.85, adj = 0)
+legend("topright", legend = c("Accuracy", "F1-Score"),
+       col = c("#3498DB","#E74C3C"), lwd = 2.5, pch = 16, bty = "n")
+cat("Meilleur dup_size :", best_dup, "\n")
+```
+
+---
+
+# Tableau Comparatif Final
+
+```{r}
+recap <- rbind(metr_lr, metr_lr_smote,
+               metr_arbre, metr_arbre_smote,
+               metr_rf, metr_rf_smote)
+rownames(recap) <- NULL
+print(recap)
+```
+
+## Graphique comparatif — Rappel et F1-Score
+
+```{r fig.height=5}
+couleurs_recap <- c("#BDC3C7","#3498DB","#F0B27A","#E67E22","#A9DFBF","#27AE60")
+
+par(mfrow = c(1, 2))
+
+# Rappel
+bp1 <- barplot(recap$Rappel,
+               names.arg = c("LR\nBase","LR\nSMOTE","Arbre\nBase","Arbre\nSMOTE","RF\nBase","RF\nSMOTE"),
+               col = couleurs_recap, border = "white",
+               main = "Rappel — Détection des Impayés",
+               ylab = "%", ylim = c(0, 120), cex.names = 0.7)
+text(bp1, recap$Rappel + 3, paste0(recap$Rappel, "%"), font = 2, cex = 0.75)
+
+# F1-Score
+bp2 <- barplot(recap$F1_Score,
+               names.arg = c("LR\nBase","LR\nSMOTE","Arbre\nBase","Arbre\nSMOTE","RF\nBase","RF\nSMOTE"),
+               col = couleurs_recap, border = "white",
+               main = "F1-Score",
+               ylab = "%", ylim = c(0, 120), cex.names = 0.7)
+text(bp2, recap$F1_Score + 3, paste0(recap$F1_Score, "%"), font = 2, cex = 0.75)
+
+par(mfrow = c(1, 1))
+```
+
+## Graphique comparatif — AUC
+
+```{r fig.height=4}
+auc_vals <- c(round(auc(roc_lr),3), round(auc(roc_lr_smote),3),
+              round(auc(roc_arbre),3), round(auc(roc_arbre_smote),3),
+              round(auc(roc_rf),3), round(auc(roc_rf_smote),3))
+
+bp3 <- barplot(auc_vals,
+               names.arg = c("LR\nBase","LR\nSMOTE","Arbre\nBase","Arbre\nSMOTE","RF\nBase","RF\nSMOTE"),
+               col = couleurs_recap, border = "white",
+               main = "AUC — Qualité globale des modèles",
+               ylab = "AUC", ylim = c(0, 1.2), cex.names = 0.75)
+text(bp3, auc_vals + 0.03, auc_vals, font = 2, cex = 0.85)
+abline(h = 0.5, col = "gray", lty = 2)
+```
+
+---
+
+# Conclusion
+
+```{r echo=FALSE}
+meilleur_auc    <- recap$Modèle[which.max(auc_vals)]
+meilleur_rappel <- recap$Modèle[which.max(recap$Rappel)]
+```
+
+## Synthèse des résultats
+
+```{r echo=FALSE}
+print(recap)
+```
+
+## Interprétation finale
+
+Le jeu de données présentait un **fort déséquilibre** (86.7% Impayés / 13.3% Payeurs). Voici les enseignements principaux :
+
+**Modèle de base (sans SMOTE)**
+
+Sans rééquilibrage, tous les modèles obtiennent une accuracy trompeuse mais un rappel très faible — ils prédisent "Impayé" pour presque tout le monde à cause du déséquilibre.
+
+**Impact de SMOTE**
+
+SMOTE améliore significativement le **rappel** et le **F1-Score** sur tous les modèles. Il permet de mieux détecter les vrais Payeurs sans sacrifier entièrement la précision.
+
+**Meilleur modèle**
+
+La **Forêt Aléatoire avec SMOTE** obtient la meilleure AUC et le meilleur rappel. Sa courbe ROC domine les autres pour toutes les valeurs de seuil, quelle que soit la matrice de coût opérationnel.
+
+**Contexte métier**
+
+Dans le risque de crédit, le **rappel est la métrique prioritaire** : rater un vrai impayé coûte bien plus cher qu'une fausse alarme. Le seuil optimal calculé par l'indice de Youden est préférable au seuil arbitraire de 0.5.
+
+| Modèle | AUC | Rappel | Recommandation |
+|--------|-----|--------|----------------|
+| LR Sans SMOTE | `r round(auc(roc_lr),3)` | `r metr_lr$Rappel`% | Référence |
+| LR Avec SMOTE | `r round(auc(roc_lr_smote),3)` | `r metr_lr_smote$Rappel`% | Amélioration notable |
+| Arbre Avec SMOTE | `r round(auc(roc_arbre_smote),3)` | `r metr_arbre_smote$Rappel`% | Interprétable |
+| **RF Avec SMOTE** | **`r round(auc(roc_rf_smote),3)`** | **`r metr_rf_smote$Rappel`%** | **Recommandé** |

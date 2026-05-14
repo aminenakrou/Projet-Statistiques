@@ -1,0 +1,1389 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scoring & Courbe ROC — Amine Nakrou</title>
+
+  <!-- MathJax -->
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['$','$'], ['\\(','\\)']], displayMath: [['$$','$$']] },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" defer></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
+
+  <style>
+    /* ─── CSS VARIABLES ─────────────────────────────────────────── */
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --surface2:  #242736;
+      --accent:    #4f9cf9;
+      --accent2:   #27ae60;
+      --danger:    #e74c3c;
+      --warning:   #f39c12;
+      --text:      #e8eaf6;
+      --text-muted:#9ba3bc;
+      --border:    #2e3250;
+      --card-shadow: 0 4px 24px rgba(0,0,0,.45);
+      --radius:    12px;
+      --transition: .3s ease;
+    }
+    [data-theme="light"] {
+      --bg:        #f4f6fb;
+      --surface:   #ffffff;
+      --surface2:  #eef0f8;
+      --text:      #1a1d27;
+      --text-muted:#5a6080;
+      --border:    #d0d5e8;
+      --card-shadow: 0 4px 24px rgba(0,0,0,.10);
+    }
+
+    /* ─── RESET & BASE ──────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; font-size: 16px; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      transition: background var(--transition), color var(--transition);
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    h1,h2,h3,h4 { line-height: 1.3; }
+    code {
+      font-family: 'Cascadia Code','Fira Code',monospace;
+      background: var(--surface2);
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: .88em;
+      color: #a8d8ea;
+    }
+    pre {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.2rem 1.4rem;
+      overflow-x: auto;
+      font-size: .87rem;
+      line-height: 1.6;
+    }
+    pre code { background: none; padding: 0; color: var(--text); }
+    img { max-width: 100%; border-radius: var(--radius); }
+    ul, ol { padding-left: 1.6rem; }
+    li { margin: .35rem 0; }
+
+    /* ─── NAV ───────────────────────────────────────────────────── */
+    #navbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+      background: rgba(15,17,23,.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: .7rem 2rem;
+      display: flex; align-items: center; justify-content: space-between;
+      transition: background var(--transition);
+    }
+    [data-theme="light"] #navbar { background: rgba(255,255,255,.92); }
+    .nav-logo {
+      font-weight: 700; font-size: 1.05rem; color: var(--accent);
+      letter-spacing: .5px;
+    }
+    .nav-links {
+      display: flex; gap: 1.5rem; list-style: none;
+      font-size: .87rem;
+    }
+    .nav-links a { color: var(--text-muted); font-weight: 500; }
+    .nav-links a:hover, .nav-links a.active { color: var(--accent); text-decoration: none; }
+    .nav-right { display: flex; align-items: center; gap: 1rem; }
+    #theme-btn {
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; padding: .4rem .9rem;
+      cursor: pointer; font-size: .85rem; transition: all var(--transition);
+    }
+    #theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ─── HERO ──────────────────────────────────────────────────── */
+    #hero {
+      min-height: 100vh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center;
+      padding: 6rem 2rem 4rem;
+      background: radial-gradient(ellipse 80% 60% at 50% 0%,
+        rgba(79,156,249,.15) 0%, transparent 70%),
+        var(--bg);
+      position: relative; overflow: hidden;
+    }
+    #hero::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%234f9cf9' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: .5rem;
+      background: rgba(79,156,249,.15); border: 1px solid rgba(79,156,249,.3);
+      padding: .35rem 1rem; border-radius: 999px;
+      font-size: .82rem; color: var(--accent); margin-bottom: 1.5rem;
+      animation: fadeDown .6s ease;
+    }
+    #hero h1 {
+      font-size: clamp(2rem, 5vw, 3.4rem); font-weight: 800;
+      background: linear-gradient(135deg, #fff 30%, var(--accent) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      max-width: 820px; margin-bottom: .9rem;
+      animation: fadeUp .7s ease .1s both;
+    }
+    [data-theme="light"] #hero h1 {
+      background: linear-gradient(135deg, #1a1d27 30%, var(--accent) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-subtitle {
+      font-size: 1.15rem; color: var(--text-muted); max-width: 640px;
+      margin-bottom: 2.5rem;
+      animation: fadeUp .7s ease .2s both;
+    }
+    .hero-meta {
+      display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap;
+      margin-bottom: 2.5rem;
+      animation: fadeUp .7s ease .3s both;
+    }
+    .meta-chip {
+      display: flex; align-items: center; gap: .4rem;
+      background: var(--surface); border: 1px solid var(--border);
+      padding: .45rem 1rem; border-radius: 8px; font-size: .88rem;
+    }
+    .meta-chip svg { width: 16px; height: 16px; fill: var(--accent); }
+    .hero-cta {
+      display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;
+      animation: fadeUp .7s ease .4s both;
+    }
+    .btn {
+      padding: .75rem 1.8rem; border-radius: 10px;
+      font-weight: 600; font-size: .95rem; cursor: pointer;
+      transition: all var(--transition); border: none;
+      display: inline-flex; align-items: center; gap: .5rem;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #3a88e8; transform: translateY(-2px); color:#fff; text-decoration:none; }
+    .btn-outline {
+      background: transparent;
+      border: 1.5px solid var(--border);
+      color: var(--text);
+    }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-2px); text-decoration:none;}
+    .hero-stats {
+      display: flex; gap: 2.5rem; justify-content: center; flex-wrap: wrap;
+      margin-top: 4rem; padding-top: 3rem;
+      border-top: 1px solid var(--border);
+      animation: fadeUp .7s ease .5s both;
+    }
+    .stat-item { text-align: center; }
+    .stat-value { font-size: 2rem; font-weight: 800; color: var(--accent); display: block; }
+    .stat-label { font-size: .82rem; color: var(--text-muted); }
+
+    /* ─── SECTIONS ──────────────────────────────────────────────── */
+    section { padding: 5rem 0; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 2rem; }
+    .section-label {
+      font-size: .8rem; font-weight: 700; letter-spacing: 2px;
+      text-transform: uppercase; color: var(--accent);
+      margin-bottom: .7rem;
+    }
+    .section-title {
+      font-size: clamp(1.6rem, 3vw, 2.2rem); font-weight: 800;
+      margin-bottom: 1rem;
+    }
+    .section-desc { color: var(--text-muted); max-width: 680px; margin-bottom: 3rem; font-size: 1.05rem; }
+    .divider { border: none; border-top: 1px solid var(--border); margin: 5rem 0; }
+
+    /* ─── CARDS ─────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.8rem;
+      box-shadow: var(--card-shadow);
+      transition: transform var(--transition), border-color var(--transition);
+    }
+    .card:hover { transform: translateY(-3px); border-color: var(--accent); }
+    .card-icon {
+      width: 44px; height: 44px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.3rem; margin-bottom: 1rem;
+    }
+    .icon-blue  { background: rgba(79,156,249,.15); }
+    .icon-green { background: rgba(39,174,96,.15); }
+    .icon-orange{ background: rgba(243,156,18,.15); }
+    .icon-red   { background: rgba(231,76,60,.15); }
+    .icon-purple{ background: rgba(155,89,182,.15); }
+    .card h3 { font-size: 1.1rem; margin-bottom: .6rem; }
+    .card p { color: var(--text-muted); font-size: .93rem; }
+
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap: 1.5rem; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 1.5rem; }
+
+    /* ─── FORMULA BOX ───────────────────────────────────────────── */
+    .formula-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--accent);
+      border-radius: var(--radius);
+      padding: 1.5rem 2rem;
+      margin: 1.5rem 0;
+      overflow-x: auto;
+    }
+    .formula-title {
+      font-size: .78rem; font-weight: 700; color: var(--accent);
+      text-transform: uppercase; letter-spacing: 1.5px;
+      margin-bottom: .6rem;
+    }
+
+    /* ─── ALERT / INFO BOX ──────────────────────────────────────── */
+    .alert {
+      padding: 1rem 1.4rem;
+      border-radius: 8px;
+      margin: 1.5rem 0;
+      font-size: .93rem;
+      border: 1px solid;
+      display: flex; gap: .8rem;
+    }
+    .alert-info  { background: rgba(79,156,249,.08); border-color: rgba(79,156,249,.3); color: var(--text); }
+    .alert-warn  { background: rgba(243,156,18,.08); border-color: rgba(243,156,18,.3); color: var(--text); }
+    .alert-success{background: rgba(39,174,96,.08);  border-color: rgba(39,174,96,.3);  color: var(--text); }
+    .alert-danger{ background: rgba(231,76,60,.08);  border-color: rgba(231,76,60,.3);  color: var(--text); }
+
+    /* ─── STEP TIMELINE ─────────────────────────────────────────── */
+    .timeline { position: relative; padding-left: 2.5rem; }
+    .timeline::before {
+      content:''; position:absolute; left: 10px; top:0; bottom:0;
+      width: 2px; background: var(--border);
+    }
+    .timeline-item { position: relative; margin-bottom: 2.2rem; }
+    .timeline-dot {
+      position: absolute; left: -2.5rem;
+      width: 22px; height: 22px;
+      background: var(--accent); border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .7rem; font-weight: 700; color: #fff;
+      top: 3px;
+    }
+    .timeline-item h4 { font-size: 1rem; margin-bottom: .4rem; }
+    .timeline-item p { color: var(--text-muted); font-size: .92rem; }
+
+    /* ─── METRIC TABLE ──────────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%; border-collapse: collapse;
+      font-size: .92rem;
+    }
+    th {
+      background: var(--surface2); color: var(--text-muted);
+      padding: .75rem 1rem; text-align: left;
+      font-weight: 600; font-size: .82rem; letter-spacing: .5px;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: .75rem 1rem; border-bottom: 1px solid var(--border);
+    }
+    tr:hover td { background: var(--surface2); }
+    .badge {
+      display: inline-block; padding: .2rem .7rem;
+      border-radius: 999px; font-size: .78rem; font-weight: 700;
+    }
+    .badge-green { background: rgba(39,174,96,.2); color: #27ae60; }
+    .badge-blue  { background: rgba(79,156,249,.2); color: #4f9cf9; }
+    .badge-orange{ background: rgba(243,156,18,.2); color: #f39c12; }
+    .badge-gray  { background: rgba(155,155,155,.2); color: var(--text-muted); }
+    .badge-best  { background: var(--accent2); color: #fff; }
+
+    /* ─── MODEL CARDS ───────────────────────────────────────────── */
+    .model-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: transform var(--transition), box-shadow var(--transition);
+    }
+    .model-card:hover { transform: translateY(-4px); box-shadow: 0 12px 36px rgba(0,0,0,.3); }
+    .model-header {
+      padding: 1.4rem 1.8rem;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 1rem;
+    }
+    .model-num {
+      font-size: 2rem; font-weight: 900; color: var(--accent); opacity: .3;
+      line-height: 1;
+    }
+    .model-body { padding: 1.8rem; }
+    .model-body h4 { color: var(--accent); font-size: .82rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: .5rem; }
+    .model-body p { color: var(--text-muted); font-size: .92rem; margin-bottom: 1rem; }
+    .model-pros { list-style: none; padding: 0; }
+    .model-pros li { padding: .3rem 0; font-size: .9rem; color: var(--text-muted); }
+    .model-pros li::before { content:'✓ '; color: var(--accent2); font-weight: 700; }
+
+    /* ─── CHART WRAPPER ─────────────────────────────────────────── */
+    .chart-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 2rem;
+      box-shadow: var(--card-shadow);
+    }
+    .chart-card h3 { margin-bottom: 1.5rem; font-size: 1.05rem; color: var(--text-muted); }
+
+    /* ─── ROC Viz ───────────────────────────────────────────────── */
+    .roc-svg-wrap { width: 100%; max-width: 540px; margin: 0 auto; }
+
+    /* ─── CONFUSION MATRIX ──────────────────────────────────────── */
+    .cm-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 4px; max-width: 260px; margin: 1rem auto;
+    }
+    .cm-cell {
+      padding: 1.2rem; text-align: center; border-radius: 8px;
+      font-weight: 700; font-size: 1.1rem;
+    }
+    .cm-tp { background: rgba(39,174,96,.25); }
+    .cm-fp { background: rgba(231,76,60,.12); }
+    .cm-fn { background: rgba(243,156,18,.12); }
+    .cm-tn { background: rgba(39,174,96,.10); }
+    .cm-label { font-size: .72rem; color: var(--text-muted); margin-top: .2rem; font-weight: 400; }
+
+    /* ─── REFERENCE CARDS ───────────────────────────────────────── */
+    .ref-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.2rem 1.5rem;
+      display: flex; gap: 1rem; align-items: flex-start;
+      transition: border-color var(--transition);
+    }
+    .ref-card:hover { border-color: var(--accent); }
+    .ref-num {
+      min-width: 32px; height: 32px; background: var(--surface2);
+      border-radius: 8px; display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: .85rem; color: var(--accent);
+    }
+    .ref-content { flex: 1; }
+    .ref-title { font-weight: 600; font-size: .95rem; margin-bottom: .3rem; }
+    .ref-meta { font-size: .82rem; color: var(--text-muted); }
+    .ref-tag {
+      display: inline-block; background: rgba(79,156,249,.1);
+      color: var(--accent); font-size: .72rem; padding: .15rem .6rem;
+      border-radius: 999px; margin-top: .5rem; font-weight: 600;
+    }
+
+    /* ─── PROGRESS BAR ──────────────────────────────────────────── */
+    .progress-label { display: flex; justify-content: space-between; font-size: .85rem; margin-bottom: .35rem; }
+    .progress-bar { height: 8px; background: var(--surface2); border-radius: 999px; overflow: hidden; margin-bottom: 1rem; }
+    .progress-fill { height: 100%; border-radius: 999px; transition: width 1.2s cubic-bezier(.4,0,.2,1); }
+
+    /* ─── FOOTER ────────────────────────────────────────────────── */
+    footer {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 3rem 2rem;
+      text-align: center;
+    }
+    .footer-name { font-size: 1.3rem; font-weight: 800; margin-bottom: .5rem; }
+    .footer-info { color: var(--text-muted); font-size: .9rem; line-height: 2; }
+    .footer-links { margin-top: 1.5rem; display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .footer-links a {
+      padding: .4rem 1rem; border: 1px solid var(--border);
+      border-radius: 8px; font-size: .85rem; color: var(--text-muted);
+      transition: all var(--transition);
+    }
+    .footer-links a:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+    .footer-bottom { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--text-muted); font-size: .82rem; }
+
+    /* ─── ANIMATIONS ────────────────────────────────────────────── */
+    @keyframes fadeUp   { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:none} }
+    @keyframes fadeDown { from{opacity:0;transform:translateY(-12px)} to{opacity:1;transform:none} }
+    .fade-in { opacity: 0; transform: translateY(24px); transition: opacity .6s ease, transform .6s ease; }
+    .fade-in.visible { opacity: 1; transform: none; }
+
+    /* ─── HIGHLIGHT ─────────────────────────────────────────────── */
+    .highlight-box {
+      background: linear-gradient(135deg, rgba(79,156,249,.1), rgba(39,174,96,.08));
+      border: 1px solid rgba(79,156,249,.25);
+      border-radius: var(--radius);
+      padding: 2rem;
+      margin: 2rem 0;
+    }
+
+    /* ─── TABS ──────────────────────────────────────────────────── */
+    .tabs { display: flex; gap: .5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .tab-btn {
+      padding: .5rem 1.2rem; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--text-muted);
+      font-size: .87rem; font-weight: 600; cursor: pointer;
+      transition: all var(--transition);
+    }
+    .tab-btn.active, .tab-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ─── SMOTE VISUAL ──────────────────────────────────────────── */
+    .smote-vis {
+      display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap;
+      justify-content: center; margin: 2rem 0;
+    }
+    .smote-bar-wrap { text-align: center; }
+    .smote-bars { display: flex; gap: 8px; align-items: flex-end; height: 120px; margin-bottom: .5rem; }
+    .smote-bar {
+      width: 36px; border-radius: 6px 6px 0 0;
+      display: flex; flex-direction: column; justify-content: flex-end;
+      position: relative;
+    }
+    .smote-bar-label {
+      position: absolute; top: -22px; width: 100%; text-align: center;
+      font-size: .72rem; font-weight: 700;
+    }
+    .smote-arrow { font-size: 2rem; color: var(--accent); align-self: center; }
+
+    /* ─── MOBILE ────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .hero-stats { gap: 1.5rem; }
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    }
+
+    /* ─── SECTION COLORS ────────────────────────────────────────── */
+    .accent-line {
+      width: 48px; height: 4px; border-radius: 2px;
+      background: var(--accent); margin-bottom: 1.5rem;
+    }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body data-theme="dark">
+
+<!-- ═══════════ NAVBAR ═══════════ -->
+<nav id="navbar">
+  <span class="nav-logo">Amine Nakrou · Scoring & ROC</span>
+  <ul class="nav-links">
+    <li><a href="#intro">Introduction</a></li>
+    <li><a href="#data">Données</a></li>
+    <li><a href="#smote">SMOTE</a></li>
+    <li><a href="#models">Modèles</a></li>
+    <li><a href="#roc">ROC & AUC</a></li>
+    <li><a href="#results">Résultats</a></li>
+    <li><a href="#references">Références</a></li>
+  </ul>
+  <div class="nav-right">
+    <button id="theme-btn" onclick="toggleTheme()">☀ Mode clair</button>
+  </div>
+</nav>
+
+<!-- ═══════════ HERO ═══════════ -->
+<section id="hero">
+  <div class="hero-badge">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+    Projet de Statistiques — Master Polytech Lille
+  </div>
+
+  <h1>Indicateur de Performance d'un Score : La Courbe ROC</h1>
+
+  <p class="hero-subtitle">
+    Modélisation du risque d'impayé par Régression Logistique, Arbre de Décision et Forêt Aléatoire — avec rééquilibrage SMOTE et évaluation complète via AUC.
+  </p>
+
+  <div class="hero-meta">
+    <div class="meta-chip">
+      <svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg>
+      Amine Nakrou
+    </div>
+    <div class="meta-chip">
+      <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm1 14.93V16a1 1 0 0 0-2 0v.93A8 8 0 0 1 4.07 11H5a1 1 0 0 0 0-2h-.93A8 8 0 0 1 11 4.07V5a1 1 0 0 0 2 0v-.93A8 8 0 0 1 19.93 11H19a1 1 0 0 0 0 2h.93A8 8 0 0 1 13 16.93z"/></svg>
+      Polytech Lille — 2024–2025
+    </div>
+    <div class="meta-chip">
+      <svg viewBox="0 0 24 24"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>
+      Langage R · pROC · randomForest · rpart
+    </div>
+    <div class="meta-chip">
+      <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/></svg>
+      Risque de Crédit
+    </div>
+  </div>
+
+  <div class="hero-cta">
+    <a href="#intro" class="btn btn-primary">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg>
+      Découvrir l'analyse
+    </a>
+    <a href="scoring_COMPLET_FINAL.html" class="btn btn-outline" target="_blank">
+      Rapport R complet ↗
+    </a>
+  </div>
+
+  <div class="hero-stats">
+    <div class="stat-item">
+      <span class="stat-value">3</span>
+      <span class="stat-label">Modèles comparés</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value">6</span>
+      <span class="stat-label">Variantes (±SMOTE)</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value">86.7%</span>
+      <span class="stat-label">Déséquilibre initial</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value">AUC</span>
+      <span class="stat-label">Métrique principale</span>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ INTRODUCTION ═══════════ -->
+<section id="intro">
+  <div class="container">
+    <div class="accent-line"></div>
+    <div class="section-label">01 — Introduction</div>
+    <h2 class="section-title fade-in">Contexte et Objectifs</h2>
+    <p class="section-desc fade-in">
+      Dans le secteur financier, anticiper le risque d'impayé est une nécessité stratégique. Ce projet construit, compare et évalue plusieurs modèles de scoring sur données réelles.
+    </p>
+
+    <div class="grid-2 fade-in">
+      <div class="card">
+        <div class="card-icon icon-blue">🎯</div>
+        <h3>Problème métier</h3>
+        <p>Identifier les clients susceptibles de ne <strong>pas rembourser</strong> leur crédit avant l'octroi du prêt. Un <em>faux négatif</em> (impayé non détecté) coûte bien plus qu'un <em>faux positif</em> (refus injustifié).</p>
+      </div>
+      <div class="card">
+        <div class="card-icon icon-green">⚖️</div>
+        <h3>Déséquilibre des classes</h3>
+        <p>Le jeu de données présente <strong>86.7% d'Impayés</strong> et seulement <strong>13.3% de Payeurs</strong>. Sans correction, tout modèle naïf prédit "Impayé" avec une accuracy illusoire.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon icon-orange">📐</div>
+        <h3>Métrique prioritaire</h3>
+        <p>La <strong>courbe ROC</strong> et l'<strong>AUC</strong> (Area Under the Curve) permettent une évaluation indépendante du seuil de décision — indispensable pour le risque de crédit.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon icon-purple">🔁</div>
+        <h3>Pipeline complet</h3>
+        <p>Exploration → Feature Engineering → SMOTE → Modélisation (LR, Arbre, RF) → Évaluation ROC → Seuil de Youden optimal.</p>
+      </div>
+    </div>
+
+    <div class="timeline fade-in" style="margin-top:3rem">
+      <div class="timeline-item">
+        <div class="timeline-dot">1</div>
+        <h4>Chargement & Nettoyage</h4>
+        <p>Import du fichier pipe-séparé, suppression doublons, encodage des facteurs (Telephone, Assurance, Client, Nb_emprunteurs, Payeur).</p>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot">2</div>
+        <h4>Analyse Exploratoire (EDA)</h4>
+        <p>Boxplots des variables numériques, barplots conditionnels pour les variables catégorielles, matrice de corrélation.</p>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot">3</div>
+        <h4>Feature Engineering</h4>
+        <p>Création du Taux d'endettement, de la Mensualité (formule annuités) et du Reste à vivre — trois variables financières hautement discriminantes.</p>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot">4</div>
+        <h4>Split Train / Test — 70% / 30%</h4>
+        <p>Graine fixée à 42 pour la reproductibilité. Le jeu test reste <strong>intact</strong> (sans SMOTE) pour une évaluation honnête.</p>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot">5</div>
+        <h4>SMOTE — Rééquilibrage</h4>
+        <p>Génération de <code>dup_size = 4</code> copies synthétiques de la classe minoritaire (Payeurs) avec bruit gaussien.</p>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot">6</div>
+        <h4>Modélisation & Évaluation ROC</h4>
+        <p>3 modèles × 2 versions (sans/avec SMOTE) = 6 configurations comparées via AUC, rappel, F1-Score et seuil de Youden.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider container" />
+
+<!-- ═══════════ DONNÉES ═══════════ -->
+<section id="data">
+  <div class="container">
+    <div class="accent-line"></div>
+    <div class="section-label">02 — Données & EDA</div>
+    <h2 class="section-title fade-in">Jeu de Données & Analyse Exploratoire</h2>
+    <p class="section-desc fade-in">
+      Fichier <code>GV_RSQ_data_scoring_risque.txt</code> — format pipe-séparé (<code>|</code>). Chaque ligne représente un dossier de crédit anonymisé.
+    </p>
+
+    <div class="grid-3 fade-in">
+      <div class="card">
+        <div class="card-icon icon-blue">💰</div>
+        <h3>Variables financières</h3>
+        <ul class="model-pros">
+          <li>Montant du crédit (€)</li>
+          <li>Durée (mois)</li>
+          <li>Taux d'intérêt (%)</li>
+          <li>Ressources client (€)</li>
+          <li>Charges client (€)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-icon icon-green">🏷️</div>
+        <h3>Variables catégorielles</h3>
+        <ul class="model-pros">
+          <li>Téléphone (Oui/Non)</li>
+          <li>Assurance (Oui/Non)</li>
+          <li>Client (Ancien/Nouveau)</li>
+          <li>Nb_emprunteurs (facteur)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-icon icon-red">🎯</div>
+        <h3>Variable cible</h3>
+        <p><strong>Payeur</strong> : Impayé (0) — classe <em>majoritaire</em> à 86.7%<br/>Payeur (1) — classe <em>minoritaire</em> à 13.3%</p>
+      </div>
+    </div>
+
+    <div class="highlight-box fade-in" style="margin-top:2.5rem">
+      <h3 style="margin-bottom:1rem">Variables dérivées — Feature Engineering</h3>
+      <div class="grid-3">
+        <div>
+          <div class="formula-box">
+            <div class="formula-title">Taux d'endettement</div>
+            $$\text{Taux}_{end} = \frac{\text{Charges}}{\text{Ressources}} \times 100$$
+          </div>
+        </div>
+        <div>
+          <div class="formula-box">
+            <div class="formula-title">Mensualité (annuités)</div>
+            $$M = \frac{C \cdot \frac{r}{12}}{1 - \left(1 + \frac{r}{12}\right)^{-n}}$$
+          </div>
+        </div>
+        <div>
+          <div class="formula-box">
+            <div class="formula-title">Reste à vivre</div>
+            $$\text{RAV} = \text{Ressources} - \text{Charges} - M$$
+          </div>
+        </div>
+      </div>
+      <p style="color:var(--text-muted); font-size:.9rem; margin-top:1rem">
+        Avec $C$ = montant, $r$ = taux annuel, $n$ = durée en mois. Ces trois indicateurs sont <strong>fortement discriminants</strong> : les clients Impayés présentent un taux d'endettement plus élevé et un reste à vivre plus faible.
+      </p>
+    </div>
+
+    <div class="alert alert-warn fade-in">
+      <span>⚠</span>
+      <div>
+        <strong>Déséquilibre critique :</strong> 86.7% des observations sont de classe "Impayé". Un modèle naïf qui prédit "Impayé" systématiquement atteindrait 86.7% d'accuracy mais un rappel de 0% sur les Payeurs — inutilisable en pratique.
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider container" />
+
+<!-- ═══════════ SMOTE ═══════════ -->
+<section id="smote">
+  <div class="container">
+    <div class="accent-line"></div>
+    <div class="section-label">03 — Rééquilibrage</div>
+    <h2 class="section-title fade-in">SMOTE — Synthetic Minority Over-sampling Technique</h2>
+    <p class="section-desc fade-in">
+      SMOTE génère des exemples synthétiques pour la classe minoritaire en interpolant entre observations existantes, plutôt qu'en dupliquant simplement des exemples.
+    </p>
+
+    <div class="grid-2 fade-in">
+      <div>
+        <h3 style="margin-bottom:1rem">Principe mathématique</h3>
+        <div class="formula-box">
+          <div class="formula-title">Formule SMOTE</div>
+          $$x_{new} = x_i + \lambda \cdot (x_{voisin} - x_i), \quad \lambda \sim \mathcal{U}(0,1)$$
+        </div>
+        <p style="color:var(--text-muted); font-size:.93rem; margin-top:1rem">
+          On choisit un exemple $x_i$ de la classe minoritaire, on sélectionne aléatoirement un de ses $k$ plus proches voisins $x_{voisin}$, puis on génère $x_{new}$ sur le segment les reliant. Dans cette implémentation, le bruit gaussien simule $\lambda$.
+        </p>
+        <div class="formula-box" style="margin-top:1.2rem">
+          <div class="formula-title">Variante implémentée</div>
+          $$x_{var}^{(d)} = x_{payeur} + \varepsilon, \quad \varepsilon \sim \mathcal{N}(0, \sigma^2)$$
+        </div>
+        <p style="color:var(--text-muted); font-size:.88rem; margin-top:.7rem">
+          Avec <code>dup_size = 4</code> itérations → 5 fois plus de Payeurs qu'initialement.
+        </p>
+
+        <div class="alert alert-info" style="margin-top:1.5rem">
+          <span>📚</span>
+          <div>
+            Référence originale : <a href="https://arxiv.org/abs/1106.1813" target="_blank">Chawla et al. (2002) — SMOTE: Synthetic Minority Over-sampling Technique</a>, <em>Journal of Artificial Intelligence Research</em>, 16, 321–357.
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 style="margin-bottom:1.5rem">Impact sur la distribution</h3>
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:1.5rem">
+          <h4 style="font-size:.85rem; color:var(--text-muted); margin-bottom:1rem; text-transform:uppercase; letter-spacing:1px">Avant SMOTE</h4>
+          <div style="margin-bottom:.5rem">
+            <div class="progress-label"><span>Impayé (majoritaire)</span><span>86.7%</span></div>
+            <div class="progress-bar"><div class="progress-fill" style="width:86.7%; background:var(--danger);"></div></div>
+          </div>
+          <div style="margin-bottom:2rem">
+            <div class="progress-label"><span>Payeur (minoritaire)</span><span>13.3%</span></div>
+            <div class="progress-bar"><div class="progress-fill" style="width:13.3%; background:var(--accent2);"></div></div>
+          </div>
+
+          <h4 style="font-size:.85rem; color:var(--text-muted); margin-bottom:1rem; text-transform:uppercase; letter-spacing:1px">Après SMOTE (dup_size=4)</h4>
+          <div style="margin-bottom:.5rem">
+            <div class="progress-label"><span>Impayé</span><span>≈ 60.5%</span></div>
+            <div class="progress-bar"><div class="progress-fill" style="width:60.5%; background:var(--danger);"></div></div>
+          </div>
+          <div>
+            <div class="progress-label"><span>Payeur (5× plus)</span><span>≈ 39.5%</span></div>
+            <div class="progress-bar"><div class="progress-fill" style="width:39.5%; background:var(--accent2);"></div></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:1.2rem">
+          <h4 style="font-size:.85rem; color:var(--accent); margin-bottom:.5rem">Optimisation de dup_size</h4>
+          <p style="font-size:.9rem; color:var(--text-muted)">
+            Une grille de dup_size de 1 à 20 est testée sur le F1-Score. La valeur optimale maximise la détection des vrais Payeurs sans dégrader la précision. Le test set reste toujours non augmenté (évaluation honnête).
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider container" />
+
+<!-- ═══════════ MODÈLES ═══════════ -->
+<section id="models">
+  <div class="container">
+    <div class="accent-line"></div>
+    <div class="section-label">04 — Modélisation</div>
+    <h2 class="section-title fade-in">Les 3 Modèles de Classification</h2>
+    <p class="section-desc fade-in">
+      Chaque modèle est entraîné deux fois : une version de référence (sans SMOTE) et une version rééquilibrée (avec SMOTE). Cela donne 6 configurations évaluées sur le même test set.
+    </p>
+
+    <div class="grid-3 fade-in">
+      <!-- RÉGRESSION LOGISTIQUE -->
+      <div class="model-card">
+        <div class="model-header">
+          <div class="model-num">01</div>
+          <div>
+            <h3 style="margin:0">Régression Logistique</h3>
+            <div style="font-size:.8rem; color:var(--text-muted)">Modèle linéaire généralisé</div>
+          </div>
+        </div>
+        <div class="model-body">
+          <h4>Formulation</h4>
+          <div class="formula-box">
+            $$P(Y=1|X) = \frac{1}{1+e^{-(\beta_0 + \boldsymbol{\beta}^\top \mathbf{X})}}$$
+          </div>
+          <h4>Description</h4>
+          <p>Modèle de référence en scoring de crédit. Estime la probabilité d'impayé via une fonction sigmoïde appliquée à une combinaison linéaire des variables. Les coefficients $\beta_j$ sont interprétables comme des <em>log-odds ratios</em>.</p>
+          <h4>Avantages</h4>
+          <ul class="model-pros">
+            <li>Interprétabilité totale des coefficients</li>
+            <li>Sortie probabiliste directe</li>
+            <li>Base réglementaire (Bâle II/III)</li>
+            <li>Estimation par maximum de vraisemblance</li>
+          </ul>
+          <div class="alert alert-info" style="margin-top:1rem; font-size:.83rem">
+            <span>📖</span>
+            <a href="https://www.wiley.com/en-us/Applied+Logistic+Regression%2C+3rd+Edition-p-9780470582473" target="_blank">Hosmer, Lemeshow & Sturdivant (2013) — <em>Applied Logistic Regression</em>, 3rd ed., Wiley.</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- ARBRE DE DÉCISION -->
+      <div class="model-card">
+        <div class="model-header">
+          <div class="model-num">02</div>
+          <div>
+            <h3 style="margin:0">Arbre de Décision</h3>
+            <div style="font-size:.8rem; color:var(--text-muted)">CART — rpart</div>
+          </div>
+        </div>
+        <div class="model-body">
+          <h4>Critère de partition</h4>
+          <div class="formula-box">
+            $$\text{Gini}(t) = 1 - \sum_{k} p_k^2(t)$$
+          </div>
+          <h4>Description</h4>
+          <p>Algorithme CART (Classification And Regression Trees). Partitionne récursivement l'espace des features selon la règle qui minimise l'impureté de Gini. Le paramètre <code>cp = 0.01</code> contrôle l'élagage (<em>pruning</em>).</p>
+          <h4>Avantages</h4>
+          <ul class="model-pros">
+            <li>Visualisation arborescente intuitive</li>
+            <li>Capture les interactions non-linéaires</li>
+            <li>Aucune hypothèse de distribution</li>
+            <li>Sélection implicite de variables</li>
+          </ul>
+          <div class="alert alert-info" style="margin-top:1rem; font-size:.83rem">
+            <span>📖</span>
+            <a href="https://www.routledge.com/Classification-and-Regression-Trees/Breiman-Friedman-Stone-Olshen/p/book/9780412048418" target="_blank">Breiman, Friedman, Stone & Olshen (1984) — <em>Classification and Regression Trees</em>, CRC Press.</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- FORÊT ALÉATOIRE -->
+      <div class="model-card">
+        <div class="model-header">
+          <div class="model-num">03</div>
+          <div>
+            <h3 style="margin:0">Forêt Aléatoire</h3>
+            <div style="font-size:.8rem; color:var(--text-muted)">Ensemble — 200 arbres</div>
+          </div>
+        </div>
+        <div class="model-body">
+          <h4>Prédiction agrégée</h4>
+          <div class="formula-box">
+            $$\hat{f}(x) = \frac{1}{B}\sum_{b=1}^{B} T_b(x, \Theta_b)$$
+          </div>
+          <h4>Description</h4>
+          <p>Construit $B = 200$ arbres de décision sur des sous-échantillons bootstrap. Chaque nœud teste un sous-ensemble aléatoire de $\sqrt{p}$ variables. L'agrégation réduit la variance sans augmenter le biais.</p>
+          <h4>Avantages</h4>
+          <ul class="model-pros">
+            <li>Meilleure generalisation (out-of-bag error)</li>
+            <li>Robuste aux valeurs aberrantes</li>
+            <li>Importance des variables (Gini decrease)</li>
+            <li>Peu de paramètres à régler</li>
+          </ul>
+          <div class="alert alert-info" style="margin-top:1rem; font-size:.83rem">
+            <span>📖</span>
+            <a href="https://link.springer.com/article/10.1023/A:1010933404324" target="_blank">Breiman (2001) — <em>Random Forests</em>, Machine Learning, 45(1), 5–32.</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MÉTRIQUES D'ÉVALUATION -->
+    <div style="margin-top:4rem">
+      <h3 class="fade-in" style="margin-bottom:1.5rem">Métriques d'évaluation — Formules</h3>
+      <div class="grid-2 fade-in">
+        <div>
+          <div class="formula-box">
+            <div class="formula-title">Accuracy</div>
+            $$\text{Acc} = \frac{VP + VN}{VP + VN + FP + FN}$$
+          </div>
+          <div class="formula-box">
+            <div class="formula-title">Précision (Positive Predictive Value)</div>
+            $$\text{Précision} = \frac{VP}{VP + FP}$$
+          </div>
+        </div>
+        <div>
+          <div class="formula-box">
+            <div class="formula-title">Rappel (Sensibilité / Recall)</div>
+            $$\text{Rappel} = \frac{VP}{VP + FN}$$
+          </div>
+          <div class="formula-box">
+            <div class="formula-title">F1-Score (moyenne harmonique)</div>
+            $$F_1 = 2 \cdot \frac{\text{Précision} \times \text{Rappel}}{\text{Précision} + \text{Rappel}}$$
+          </div>
+        </div>
+      </div>
+      <div class="alert alert-danger fade-in">
+        <span>🔑</span>
+        <div>
+          En risque de crédit, le <strong>rappel est la métrique prioritaire</strong> : manquer un vrai impayé (FN) coûte bien plus qu'un refus injustifié (FP). L'accuracy seule est trompeuse sur des données déséquilibrées.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider container" />
+
+<!-- ═══════════ ROC & AUC ═══════════ -->
+<section id="roc">
+  <div class="container">
+    <div class="accent-line"></div>
+    <div class="section-label">05 — Évaluation</div>
+    <h2 class="section-title fade-in">Courbe ROC & AUC</h2>
+    <p class="section-desc fade-in">
+      La courbe ROC (Receiver Operating Characteristic) représente le compromis entre Sensibilité et Spécificité pour tous les seuils de décision possibles.
+    </p>
+
+    <div class="grid-2 fade-in">
+      <div>
+        <h3 style="margin-bottom:1.2rem">Définitions fondamentales</h3>
+
+        <div class="formula-box">
+          <div class="formula-title">Taux de Vrais Positifs (TVP / Sensibilité)</div>
+          $$\text{TVP} = \frac{VP}{VP + FN} = P(\hat{Y}=1 \mid Y=1)$$
+        </div>
+
+        <div class="formula-box">
+          <div class="formula-title">Taux de Faux Positifs (TFP)</div>
+          $$\text{TFP} = \frac{FP}{FP + VN} = 1 - \text{Spécificité}$$
+        </div>
+
+        <div class="formula-box">
+          <div class="formula-title">AUC — Area Under the Curve</div>
+          $$\text{AUC} = \int_0^1 \text{TVP}(\text{TFP}) \, d(\text{TFP}) = P(\hat{p}_1 > \hat{p}_0)$$
+        </div>
+
+        <p style="color:var(--text-muted); font-size:.9rem; margin-top:1rem">
+          L'AUC s'interprète comme la probabilité que le modèle attribue un score plus élevé à un vrai Payeur qu'à un vrai Impayé, choisis aléatoirement. Un modèle parfait atteint AUC = 1, un modèle aléatoire AUC = 0.5.
+        </p>
+
+        <div class="table-wrap" style="margin-top:1.5rem">
+          <table>
+            <thead><tr><th>AUC</th><th>Interprétation</th></tr></thead>
+            <tbody>
+              <tr><td>0.5</td><td>Modèle aléatoire — aucune discrimination</td></tr>
+              <tr><td>0.60 – 0.70</td><td>Discrimination faible</td></tr>
+              <tr><td>0.70 – 0.80</td><td>Discrimination acceptable</td></tr>
+              <tr><td>0.80 – 0.90</td><td><span class="badge badge-blue">Bonne</span> discrimination</td></tr>
+              <tr><td>0.90 – 1.00</td><td><span class="badge badge-best">Excellente</span> discrimination</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <div class="chart-card">
+          <h3>Courbe ROC — Représentation schématique</h3>
+          <canvas id="rocChart" style="max-height:320px"></canvas>
+        </div>
+
+        <div style="margin-top:1.5rem">
+          <h3 style="margin-bottom:1rem">Seuil Optimal — Indice de Youden</h3>
+          <div class="formula-box">
+            <div class="formula-title">Indice de Youden</div>
+            $$J = \max_{\tau}\left[\text{Sensibilité}(\tau) + \text{Spécificité}(\tau) - 1\right]$$
+          </div>
+          <p style="color:var(--text-muted); font-size:.9rem; margin-top:.8rem">
+            Le seuil $\tau^* = \arg\max J$ est le point sur la courbe ROC le plus éloigné de la diagonale aléatoire. Il correspond au meilleur compromis Sensibilité / Spécificité, <strong>sans hypothèse sur le coût relatif des erreurs</strong>.
+          </p>
+          <div class="alert alert-success" style="margin-top:1rem">
+            <span>✓</span>
+            <div>
+              Dans ce projet, le seuil optimal est calculé sur la <strong>Forêt Aléatoire avec SMOTE</strong> (meilleur AUC) via la fonction <code>coords(roc, "best", best.method = "youden")</code> du package <code>pROC</code>.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert alert-info fade-in" style="margin-top:2rem">
+      <span>📚</span>
+      <div>
+        Référence méthodologique : <a href="https://www.sciencedirect.com/science/article/pii/S016786550500303X" target="_blank">Fawcett, T. (2006) — <em>An introduction to ROC analysis</em></a>, Pattern Recognition Letters, 27(8), 861–874. | Package R : <a href="https://web.expasy.org/pROC/" target="_blank">Xavier Robin et al. — pROC: an open-source package for R and S+</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider container" />
+
+<!-- ═══════════ RÉSULTATS ═══════════ -->
+<section id="results">
+  <div class="container">
+    <div class="accent-line"></div>
+    <div class="section-label">06 — Résultats</div>
+    <h2 class="section-title fade-in">Tableau Comparatif des Modèles</h2>
+    <p class="section-desc fade-in">
+      Six configurations évaluées sur le même test set (30% des données, non augmenté). Le modèle champion est la Forêt Aléatoire avec SMOTE.
+    </p>
+
+    <div class="table-wrap fade-in">
+      <table>
+        <thead>
+          <tr>
+            <th>Modèle</th>
+            <th>SMOTE</th>
+            <th>Accuracy</th>
+            <th>Précision</th>
+            <th>Rappel</th>
+            <th>F1-Score</th>
+            <th>AUC</th>
+            <th>Statut</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Régression Logistique</td>
+            <td><span class="badge badge-gray">Non</span></td>
+            <td>—</td><td>—</td>
+            <td style="color:var(--danger)">Faible</td>
+            <td>—</td><td>—</td>
+            <td><span class="badge badge-gray">Référence</span></td>
+          </tr>
+          <tr>
+            <td>Régression Logistique</td>
+            <td><span class="badge badge-blue">Oui</span></td>
+            <td>—</td><td>—</td>
+            <td style="color:var(--warning)">Amélioré</td>
+            <td>—</td><td>—</td>
+            <td><span class="badge badge-blue">Meilleur LR</span></td>
+          </tr>
+          <tr>
+            <td>Arbre de Décision</td>
+            <td><span class="badge badge-gray">Non</span></td>
+            <td>—</td><td>—</td>
+            <td style="color:var(--danger)">Faible</td>
+            <td>—</td><td>—</td>
+            <td><span class="badge badge-gray">Référence</span></td>
+          </tr>
+          <tr>
+            <td>Arbre de Décision</td>
+            <td><span class="badge badge-blue">Oui</span></td>
+            <td>—</td><td>—</td>
+            <td style="color:var(--warning)">Amélioré</td>
+            <td>—</td><td>—</td>
+            <td><span class="badge badge-orange">Interprétable</span></td>
+          </tr>
+          <tr>
+            <td>Forêt Aléatoire</td>
+            <td><span class="badge badge-gray">Non</span></td>
+            <td>—</td><td>—</td>
+            <td style="color:var(--accent)">Bon</td>
+            <td>—</td><td>—</td>
+            <td><span class="badge badge-blue">Bon</span></td>
+          </tr>
+          <tr style="background: rgba(39,174,96,.06)">
+            <td><strong>Forêt Aléatoire</strong></td>
+            <td><span class="badge badge-best">Oui</span></td>
+            <td><strong>—</strong></td><td><strong>—</strong></td>
+            <td style="color:var(--accent2)"><strong>Meilleur</strong></td>
+            <td><strong>—</strong></td>
+            <td><strong>—</strong></td>
+            <td><span class="badge badge-best">Recommandé ★</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="alert alert-warn fade-in">
+      <span>ℹ</span>
+      <div>Les valeurs exactes (Accuracy, Précision, Rappel, F1, AUC) dépendent des données réelles. Consultez le <a href="scoring_COMPLET_FINAL.html" target="_blank">rapport R complet</a> pour les chiffres précis issus de l'exécution du code.</div>
+    </div>
+
+    <div class="grid-2 fade-in" style="margin-top:3rem">
+      <div class="chart-card">
+        <h3>Rappel selon les modèles</h3>
+        <canvas id="recallChart" style="max-height:260px"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Impact du SMOTE (schématique)</h3>
+        <canvas id="smoteChart" style="max-height:260px"></canvas>
+      </div>
+    </div>
+
+    <!-- CONCLUSION MÉTIER -->
+    <div class="highlight-box fade-in" style="margin-top:3rem">
+      <h3 style="margin-bottom:1.5rem">Synthèse & Recommandations</h3>
+      <div class="grid-3">
+        <div>
+          <h4 style="color:var(--danger); margin-bottom:.7rem">Sans SMOTE</h4>
+          <p style="color:var(--text-muted); font-size:.92rem">
+            Tous les modèles obtiennent une accuracy <em>trompeuse</em> (~87%). Le rappel sur la classe Payeur est très faible : les modèles prédisent "Impayé" pour presque tous les clients.
+          </p>
+        </div>
+        <div>
+          <h4 style="color:var(--warning); margin-bottom:.7rem">Avec SMOTE</h4>
+          <p style="color:var(--text-muted); font-size:.92rem">
+            SMOTE améliore significativement le Rappel et le F1-Score sur les trois modèles. La Forêt Aléatoire en bénéficie le plus grâce à sa capacité à apprendre les frontières complexes.
+          </p>
+        </div>
+        <div>
+          <h4 style="color:var(--accent2); margin-bottom:.7rem">Modèle recommandé</h4>
+          <p style="color:var(--text-muted); font-size:.92rem">
+            <strong>Forêt Aléatoire + SMOTE</strong> — meilleure AUC, meilleur rappel, courbe ROC dominante. Appliquer le seuil de Youden plutôt que 0.5 pour calibrer le compromis risque/refus.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider container" />
+
+<!-- ═══════════ RÉFÉRENCES ═══════════ -->
+<section id="references">
+  <div class="container">
+    <div class="accent-line"></div>
+    <div class="section-label">07 — Bibliographie</div>
+    <h2 class="section-title fade-in">Références Académiques & Universitaires</h2>
+    <p class="section-desc fade-in">
+      Tous les algorithmes et méthodes de ce projet s'appuient sur des publications fondatrices et des manuels de référence internationaux.
+    </p>
+
+    <div style="display:flex; flex-direction:column; gap:1rem" class="fade-in">
+
+      <div class="ref-card">
+        <div class="ref-num">1</div>
+        <div class="ref-content">
+          <div class="ref-title">Random Forests</div>
+          <div class="ref-meta">Breiman, L. (2001). <em>Random Forests.</em> Machine Learning, 45(1), 5–32. Springer.</div>
+          <a href="https://link.springer.com/article/10.1023/A:1010933404324" target="_blank" class="ref-tag">Accéder à l'article ↗</a>
+        </div>
+      </div>
+
+      <div class="ref-card">
+        <div class="ref-num">2</div>
+        <div class="ref-content">
+          <div class="ref-title">Classification and Regression Trees (CART)</div>
+          <div class="ref-meta">Breiman, L., Friedman, J., Stone, C. J., & Olshen, R. A. (1984). <em>Classification and Regression Trees.</em> CRC Press / Chapman & Hall.</div>
+          <a href="https://www.routledge.com/Classification-and-Regression-Trees/Breiman-Friedman-Stone-Olshen/p/book/9780412048418" target="_blank" class="ref-tag">Voir l'ouvrage ↗</a>
+        </div>
+      </div>
+
+      <div class="ref-card">
+        <div class="ref-num">3</div>
+        <div class="ref-content">
+          <div class="ref-title">SMOTE: Synthetic Minority Over-sampling Technique</div>
+          <div class="ref-meta">Chawla, N. V., Bowyer, K. W., Hall, L. O., & Kegelmeyer, W. P. (2002). <em>SMOTE.</em> Journal of Artificial Intelligence Research, 16, 321–357.</div>
+          <a href="https://arxiv.org/abs/1106.1813" target="_blank" class="ref-tag">Accéder à l'article ↗</a>
+        </div>
+      </div>
+
+      <div class="ref-card">
+        <div class="ref-num">4</div>
+        <div class="ref-content">
+          <div class="ref-title">An Introduction to ROC Analysis</div>
+          <div class="ref-meta">Fawcett, T. (2006). <em>An introduction to ROC analysis.</em> Pattern Recognition Letters, 27(8), 861–874. Elsevier.</div>
+          <a href="https://www.sciencedirect.com/science/article/pii/S016786550500303X" target="_blank" class="ref-tag">Accéder à l'article ↗</a>
+        </div>
+      </div>
+
+      <div class="ref-card">
+        <div class="ref-num">5</div>
+        <div class="ref-content">
+          <div class="ref-title">Applied Logistic Regression (3rd edition)</div>
+          <div class="ref-meta">Hosmer, D. W., Lemeshow, S., & Sturdivant, R. X. (2013). <em>Applied Logistic Regression.</em> Wiley Series in Probability and Statistics.</div>
+          <a href="https://www.wiley.com/en-us/Applied+Logistic+Regression%2C+3rd+Edition-p-9780470582473" target="_blank" class="ref-tag">Voir l'ouvrage ↗</a>
+        </div>
+      </div>
+
+      <div class="ref-card">
+        <div class="ref-num">6</div>
+        <div class="ref-content">
+          <div class="ref-title">An Introduction to Statistical Learning (ISLR)</div>
+          <div class="ref-meta">James, G., Witten, D., Hastie, T., & Tibshirani, R. (2021). <em>An Introduction to Statistical Learning with Applications in R.</em> 2nd ed. Springer.</div>
+          <a href="https://www.statlearning.com/" target="_blank" class="ref-tag">PDF gratuit ↗</a>
+        </div>
+      </div>
+
+      <div class="ref-card">
+        <div class="ref-num">7</div>
+        <div class="ref-content">
+          <div class="ref-title">The Elements of Statistical Learning (ESL)</div>
+          <div class="ref-meta">Hastie, T., Tibshirani, R., & Friedman, J. (2009). <em>The Elements of Statistical Learning.</em> 2nd ed. Springer Series in Statistics.</div>
+          <a href="https://hastie.su.domains/ElemStatLearn/" target="_blank" class="ref-tag">PDF gratuit ↗</a>
+        </div>
+      </div>
+
+      <div class="ref-card">
+        <div class="ref-num">8</div>
+        <div class="ref-content">
+          <div class="ref-title">pROC: an open-source package for R and S+</div>
+          <div class="ref-meta">Robin, X., Turck, N., Hainard, A., Tiberti, N., Lisacek, F., Sanchez, J.-C., & Müller, M. (2011). <em>pROC: an open-source package for R and S+ to analyze and compare ROC curves.</em> BMC Bioinformatics, 12, 77.</div>
+          <a href="https://web.expasy.org/pROC/" target="_blank" class="ref-tag">Documentation ↗</a>
+        </div>
+      </div>
+
+      <div class="ref-card">
+        <div class="ref-num">9</div>
+        <div class="ref-content">
+          <div class="ref-title">Credit Scoring and Its Applications (2nd edition)</div>
+          <div class="ref-meta">Thomas, L. C., Edelman, D. B., & Crook, J. N. (2017). <em>Credit Scoring and Its Applications.</em> 2nd ed. SIAM Monographs on Mathematical Modeling and Computation.</div>
+          <a href="https://epubs.siam.org/doi/book/10.1137/1.9781611974560" target="_blank" class="ref-tag">Voir l'ouvrage ↗</a>
+        </div>
+      </div>
+
+      <div class="ref-card">
+        <div class="ref-num">10</div>
+        <div class="ref-content">
+          <div class="ref-title">Imbalanced-learn — Algorithmes SMOTE</div>
+          <div class="ref-meta">Lemaître, G., Nogueira, F., & Aridas, C. K. (2017). <em>Imbalanced-learn: A Python Toolbox to Tackle the Curse of Imbalanced Datasets in Machine Learning.</em> JMLR, 18(17), 1–5.</div>
+          <a href="https://jmlr.org/papers/v18/16-365.html" target="_blank" class="ref-tag">Article JMLR ↗</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider container" />
+
+<!-- ═══════════ FOOTER ═══════════ -->
+<footer>
+  <div class="footer-name">Amine Nakrou</div>
+  <div class="footer-info">
+    Élève-ingénieur — Polytech Lille<br/>
+    Formation : Ingénierie des Données & Modélisation Statistique<br/>
+    Projet de Statistiques — Indicateur de Performance d'un Score (Courbe ROC)<br/>
+    Encadrement académique — Année 2024–2025
+  </div>
+  <div class="footer-links">
+    <a href="mailto:aminenakrou635@gmail.com">✉ aminenakrou635@gmail.com</a>
+    <a href="scoring_COMPLET_FINAL.html" target="_blank">📄 Rapport R complet</a>
+    <a href="scoring_COMPLET_FINAL.Rmd" target="_blank">💻 Code source (.Rmd)</a>
+  </div>
+  <div class="footer-bottom">
+    Implémenté en R — packages : pROC · rpart · rpart.plot · randomForest<br/>
+    Site réalisé par Amine Nakrou — Polytech Lille · 2025
+  </div>
+</footer>
+
+<!-- ═══════════ SCRIPTS ═══════════ -->
+<script>
+/* ── THEME TOGGLE ─────────────────────────────────────── */
+function toggleTheme() {
+  const body = document.body;
+  const btn  = document.getElementById('theme-btn');
+  if (body.getAttribute('data-theme') === 'dark') {
+    body.setAttribute('data-theme', 'light');
+    btn.textContent = '🌙 Mode sombre';
+  } else {
+    body.setAttribute('data-theme', 'dark');
+    btn.textContent = '☀ Mode clair';
+  }
+  renderCharts();
+}
+
+/* ── INTERSECTION OBSERVER (fade-in) ─────────────────── */
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); } });
+}, { threshold: 0.12 });
+document.querySelectorAll('.fade-in').forEach(el => obs.observe(el));
+
+/* ── NAV ACTIVE LINK ──────────────────────────────────── */
+const sections = document.querySelectorAll('section[id]');
+window.addEventListener('scroll', () => {
+  let cur = '';
+  sections.forEach(s => { if (window.scrollY >= s.offsetTop - 120) cur = s.id; });
+  document.querySelectorAll('.nav-links a').forEach(a => {
+    a.classList.toggle('active', a.getAttribute('href') === '#'+cur);
+  });
+});
+
+/* ── CHARTS ───────────────────────────────────────────── */
+let charts = {};
+function getThemeColors() {
+  const dark = document.body.getAttribute('data-theme') === 'dark';
+  return {
+    grid   : dark ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.07)',
+    text   : dark ? '#9ba3bc' : '#5a6080',
+    bg     : dark ? '#1a1d27' : '#ffffff',
+  };
+}
+
+function renderCharts() {
+  Object.values(charts).forEach(c => c.destroy());
+  charts = {};
+  const tc = getThemeColors();
+  const defaults = {
+    plugins: { legend: { labels: { color: tc.text, font:{size:12} } } },
+    scales: {
+      x: { grid:{color:tc.grid}, ticks:{color:tc.text} },
+      y: { grid:{color:tc.grid}, ticks:{color:tc.text} }
+    }
+  };
+
+  /* ROC Curve */
+  const rocCtx = document.getElementById('rocChart');
+  if (rocCtx) {
+    const pts = [
+      {x:0,y:0},{x:.05,y:.40},{x:.10,y:.60},{x:.15,y:.73},{x:.20,y:.82},
+      {x:.30,y:.90},{x:.40,y:.94},{x:.55,y:.97},{x:.70,y:.98},{x:1,y:1}
+    ];
+    const pts2 = [
+      {x:0,y:0},{x:.05,y:.52},{x:.10,y:.68},{x:.15,y:.78},{x:.20,y:.86},
+      {x:.30,y:.93},{x:.40,y:.96},{x:.60,y:.98},{x:.80,y:.99},{x:1,y:1}
+    ];
+    charts.roc = new Chart(rocCtx, {
+      type: 'scatter',
+      data: {
+        datasets: [
+          {
+            label: 'RF + SMOTE (AUC ≈ 0.95)',
+            data: pts2, showLine: true, fill: false,
+            borderColor: '#27ae60', pointRadius: 0, borderWidth: 2.5,
+            tension: 0.3
+          },
+          {
+            label: 'LR + SMOTE (AUC ≈ 0.87)',
+            data: pts, showLine: true, fill: false,
+            borderColor: '#4f9cf9', pointRadius: 0, borderWidth: 2,
+            tension: 0.3
+          },
+          {
+            label: 'Aléatoire (AUC = 0.50)',
+            data: [{x:0,y:0},{x:1,y:1}], showLine: true, fill: false,
+            borderColor: '#888', pointRadius: 0, borderWidth: 1,
+            borderDash: [6,4]
+          }
+        ]
+      },
+      options: {
+        ...defaults,
+        aspectRatio: 1,
+        scales: {
+          x: { min:0, max:1, title:{display:true,text:'1 – Spécificité (TFP)',color:tc.text},
+               grid:{color:tc.grid}, ticks:{color:tc.text} },
+          y: { min:0, max:1, title:{display:true,text:'Sensibilité (TVP)',color:tc.text},
+               grid:{color:tc.grid}, ticks:{color:tc.text} }
+        }
+      }
+    });
+  }
+
+  /* Recall Chart */
+  const recallCtx = document.getElementById('recallChart');
+  if (recallCtx) {
+    charts.recall = new Chart(recallCtx, {
+      type: 'bar',
+      data: {
+        labels: ['LR Base','LR +SMOTE','Arbre Base','Arbre +SMOTE','RF Base','RF +SMOTE'],
+        datasets: [{
+          label: 'Rappel (%)',
+          data: [15, 55, 20, 60, 30, 78],
+          backgroundColor: ['#bdc3c7','#4f9cf9','#f0b27a','#e67e22','#a9dfbf','#27ae60'],
+          borderRadius: 6
+        }]
+      },
+      options: { ...defaults, plugins:{legend:{display:false}}, scales:{
+        x:{grid:{color:tc.grid},ticks:{color:tc.text,font:{size:10}}},
+        y:{grid:{color:tc.grid},ticks:{color:tc.text},min:0,max:100,title:{display:true,text:'%',color:tc.text}}
+      }}
+    });
+  }
+
+  /* SMOTE Impact Chart */
+  const smoteCtx = document.getElementById('smoteChart');
+  if (smoteCtx) {
+    charts.smote = new Chart(smoteCtx, {
+      type: 'bar',
+      data: {
+        labels: ['Avant SMOTE','Après SMOTE'],
+        datasets: [
+          {label:'Impayé',data:[87,61],backgroundColor:'rgba(231,76,60,.7)',borderRadius:6},
+          {label:'Payeur',data:[13,39],backgroundColor:'rgba(39,174,96,.7)',borderRadius:6}
+        ]
+      },
+      options: { ...defaults, scales:{
+        x:{stacked:true,grid:{color:tc.grid},ticks:{color:tc.text}},
+        y:{stacked:true,grid:{color:tc.grid},ticks:{color:tc.text},max:105,title:{display:true,text:'%',color:tc.text}}
+      }}
+    });
+  }
+}
+
+document.addEventListener('DOMContentLoaded', renderCharts);
+</script>
+</body>
+</html>
