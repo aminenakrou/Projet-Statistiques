@@ -2,6 +2,8 @@
 
 **Projet de Statistiques — Polytech Lille | Amine Nakrou | 2024–2025**
 
+https://aminenakrou.github.io/Projet-Statistiques/
+
 ---
 
 ## Présentation
@@ -161,4 +163,4 @@ Ou avec le bouton **Knit** dans RStudio. Fichier de données requis dans le mêm
 **Amine Nakrou**  
 Élève-ingénieur — Polytech Lille  
 Contact : aminenakrou635@gmail.com  
-Projet de Statistiques — 2024–2025
+Projet de Statistiques — 2025–2026
