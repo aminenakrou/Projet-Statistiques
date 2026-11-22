@@ -2,7 +2,7 @@
 
 **Projet de Statistiques — Polytech Lille | Amine Nakrou | 2024–2025**
 
-https://aminenakrou.github.io/Projet-Statistiques/
+https://aminenakrou.github.io/scoring-credit-courbe-roc/
 
 ---
 
@@ -17,7 +17,7 @@ Le site web de présentation se trouve dans **`index.html`**.
 ## Structure du projet
 
 ```
-Projet-Statistiques/
+scoring-credit-courbe-roc/
 ├── index.html                        # Site web de présentation
 ├── scoring.Rmd                       # Code source R Markdown
 ├── scoring.html                      # Rapport R généré (knitr)
