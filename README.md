@@ -17,12 +17,10 @@ Le site web de présentation se trouve dans **`index.html`**.
 ## Structure du projet
 
 ```
-projet ma/
+Projet-Statistiques/
 ├── index.html                        # Site web de présentation
-├── scoring_COMPLET_FINAL.Rmd         # Code source R Markdown
-├── scoring_COMPLET_FINAL.html        # Rapport R généré (knitr)
-├── GV_RSQ_data_scoring_risque.txt    # Données (pipe-séparé)
-├── DM-ridge et lasso.Rmd             # Projet complémentaire
+├── scoring.Rmd                       # Code source R Markdown
+├── scoring.html                      # Rapport R généré (knitr)
 └── README.md                         # Ce fichier
 ```
 
@@ -31,6 +29,8 @@ projet ma/
 ## Données
 
 Fichier `GV_RSQ_data_scoring_risque.txt` — séparateur `|`
+
+> Les données, fournies dans le cadre du cours, ne sont pas publiées dans ce dépôt. Le rapport `scoring.html` contient l'ensemble des résultats.
 
 | Variable | Type | Description |
 |---|---|---|
@@ -137,7 +137,7 @@ library(randomForest)  # Forêt aléatoire
 
 ```r
 # Dans RStudio ou R
-rmarkdown::render("scoring_COMPLET_FINAL.Rmd")
+rmarkdown::render("scoring.Rmd")
 ```
 
 Ou avec le bouton **Knit** dans RStudio. Fichier de données requis dans le même répertoire.
